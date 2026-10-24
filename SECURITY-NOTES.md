@@ -214,3 +214,26 @@ when several clients bind GmsCore at once.
 (`git diff v0.3.13.2.250932 main -- <file>` is empty), so this predates `0.3.13.3` and this
 fork. Candidate fix: snapshot the forwards (`new ArrayList<>(connectionForwards)`) or use a
 `CopyOnWriteArraySet` before iterating. Worth reporting upstream separately from GHSA-vmh6-hg8f-p97c.
+
+---
+
+## Canary re-verified with the stock app DISABLED
+
+Earlier caveat resolved. With `com.google.android.youtube` **disabled**
+(`pm list packages -d` lists it; launching returns *No activities found*):
+
+```
+"Denying spoofed package" hits: 0
+authoritative "missing google package permission" errors: none
+patched YouTube: running, foreground
+```
+
+A **disabled** package still yields a `PackageInfo`, so `isInstalled()` is true and
+authorization continues through the certificate path. The deny branch is not taken.
+
+This also settles the earlier open question retroactively: the removed fail-open was never
+load-bearing for this setup — authorization was already going through the cert check, even
+while the stock app was disabled.
+
+The 26 "Access denied" lines in the same capture were `libc: Access denied finding property
+"vendor.*"` — SELinux vendor-property noise, unrelated to GmsCore.
