@@ -4,8 +4,7 @@
 2026-10-24). This note is published in the fork by the fork owner, ahead of upstream triage.
 
 **Upstream issue:** https://github.com/ReVanced/GmsCore/issues/10 (closed 2024-03-27 as "completed")
-**Fork status:** inherited unfixed. Line untouched since `2e279c48`; still present at `main`
-(`776a8fb7` / `v0.3.13.3.250932`). Upstream `microg/GmsCore` is **not** affected — it has
+**Fork status:** **fixed locally** in `347ef58f` on top of `776a8fb7` (`v0.3.13.3.250932`). Upstream `microg/GmsCore` is **not** affected — it has
 neither the spoofing feature nor the fail-open.
 
 ## The bug
@@ -89,3 +88,59 @@ after that.
 
 `versionName` comes from `git describe --tags`; a `-dirty` suffix means the tree is modified
 (which it will be, with this patch) — cosmetic only.
+
+---
+
+## Applied fix (local)
+
+Commit `347ef58f` — `PackageUtils.callerHasGooglePackagePermission()` now denies an
+uninstalled spoof target and `continue`s to the next caller candidate.
+
+### A/B proof that it changes exactly one behaviour
+
+Two builds of the same tree, differing only by that hunk, then baksmali + `diff -rq`:
+
+```
+A/B diff (fixed vs no-fix), 32,728 smali files each:
+  com/google/android/gms/BuildConfig.smali        <- versionName only ('-dirty' vs '-3 (347ef58)')
+  org/microg/gms/common/PackageUtils.smali        <- the fix
+```
+
+Semantic diff of `PackageUtils.smali`, ignoring line/label churn:
+
+```diff
+-    return v4                                     # return true  (fail open)
++    const-string "Denying spoofed package "
++    ...
++    const-string "ExtendedAccess"
++    invoke-static Log;->w(...)I
++    # then goto loop-continuation (the `continue`)
+```
+
+No other class changed. Nothing else was touched.
+
+### Build output
+
+```
+variant:      MapboxUserRelease   (at HEAD, `default` is com.google.android.gms)
+package:      app.revanced.android.gms
+versionCode:  250932007           (installed is 250932004 -> higher, so an update)
+versionName:  0.3.13.3.250932-3 (347ef58)-user
+size:         105,055,077 B unsigned / 105,325,694 B signed
+sha256 (signed): a54c2493dab93328e0cfe72a4eb37542280b83b605481f7b3077a06fecb6e451
+signed with:  ~/.revanced/gmscore.keystore  (CN=GmsCore Local Build, RSA-4096)
+              password in ~/.revanced/gmscore.keystore.pass (mode 600)
+```
+
+Verifies v1 + v2 + v3. **Do not lose that keystore** — future updates must be signed with
+the same key or `adb install -r` will fail.
+
+### Remaining caveat before installing
+
+This fix only bites when the spoof target is **not installed**. In this setup the spoof
+target (`com.google.android.youtube`) is installed but **disabled**. Disabled packages still
+have a `PackageInfo`, and GmsCore targets SDK 29 so package visibility does not restrict it —
+so the deny branch should never be taken and behaviour should be unchanged. That is a
+reasoned expectation, **not a verified fact**; it can only be confirmed by installing and
+checking that YouTube still reaches Google APIs. If it breaks, re-enabling the stock YouTube
+app is the first thing to try.
