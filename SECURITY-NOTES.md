@@ -144,3 +144,73 @@ so the deny branch should never be taken and behaviour should be unchanged. That
 reasoned expectation, **not a verified fact**; it can only be confirmed by installing and
 checking that YouTube still reaches Google APIs. If it breaks, re-enabling the stock YouTube
 app is the first thing to try.
+
+---
+
+## Deployment record — installed and verified working
+
+`347ef58f` built, signed and installed on 2026-10-24.
+
+```
+installed:   app.revanced.android.gms
+versionCode: 250932007   (was 250932004)
+versionName: 0.3.13.3.250932-3 (347ef58)-user
+device sha256 == local build sha256: a54c2493dab93328e0cfe72a4eb37542280b83b605481f7b3077a06fecb6e451
+```
+
+### Verification that the fix is inert in this configuration
+
+The `Log.w("ExtendedAccess", "Denying spoofed package …")` line from the patch is a canary:
+
+```
+after launching the patched YouTube:  "Denying spoofed package" occurrences = 0
+                                      no "missing google package permission" errors
+```
+
+Deny branch never taken → `ExtendedPackageInfo("com.google.android.youtube").isInstalled()`
+is true → authorization still proceeds via the certificate path. **YouTube continues to
+work; sign-in was unaffected apart from having to sign in again after the reinstall.**
+
+Prerequisite that made this safe: the stock `com.google.android.youtube` app was
+**re-enabled** before installing. `pm disable-user` had been used earlier, and it was not
+established whether a disabled package yields a `PackageInfo` — i.e. whether the removed
+fail-open branch had been silently load-bearing. Re-enabling removed that ambiguity.
+
+**Do not disable the stock YouTube app again without re-checking the canary.** If
+`isInstalled()` turns out to be false for disabled packages, the deny branch would fire and
+patched apps would lose Google APIs.
+
+### Install notes
+
+- Signature differs from the official ReVanced build → uninstall required → **Google session
+  discarded**; sign in again.
+- HyperOS blocked the install with `INSTALL_FAILED_VERIFICATION_FAILURE` until
+  `settings put global verifier_verify_adb_installs 0` (and `package_verifier_enable 0`).
+  **Both are device-wide weakenings — restore them to `1` when you are done sideloading.**
+- Keep `~/.revanced/gmscore.keystore` (+ `.pass`): every future build must be signed with
+  the same key or `adb install -r` fails.
+
+---
+
+## Unrelated upstream bug found during verification
+
+Not caused by this fork, and **not** related to the security fix. Present in the official
+build too.
+
+```
+FATAL EXCEPTION: main
+Process: app.revanced.android.gms
+java.util.ConcurrentModificationException
+  at java.util.HashMap$HashIterator.nextNode
+  at org.microg.gms.common.MultiConnectionKeeper$Connection$1.onServiceConnected(MultiConnectionKeeper.java:220)
+```
+
+`onServiceConnected` iterates `connectionForwards` (a `HashMap` key-set view) and forwards
+the callback; a concurrent add/remove mutates the map during iteration. Reproducible
+when several clients bind GmsCore at once.
+
+`play-services-base/src/main/java/org/microg/gms/common/MultiConnectionKeeper.java` is
+**identical** between `v0.3.13.2.250932` and `main`
+(`git diff v0.3.13.2.250932 main -- <file>` is empty), so this predates `0.3.13.3` and this
+fork. Candidate fix: snapshot the forwards (`new ArrayList<>(connectionForwards)`) or use a
+`CopyOnWriteArraySet` before iterating. Worth reporting upstream separately from GHSA-vmh6-hg8f-p97c.
