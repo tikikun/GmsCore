@@ -83,9 +83,15 @@ public class PackageUtils {
             );
 
             // See https://github.com/ReVanced/GmsCore/issues/10.
+            // Fail closed: a spoofed package name is unauthenticated meta-data supplied by the
+            // caller, so an uninstalled target must not grant anything. `continue` (not
+            // `return false`) so the caller's real package is still evaluated as the next
+            // candidate. See SECURITY-NOTES.md / GHSA-vmh6-hg8f-p97c.
             ExtendedPackageInfo extendedPackageInfo = new ExtendedPackageInfo(context, packageName);
-            if (!extendedPackageInfo.isInstalled())
-                return true;
+            if (!extendedPackageInfo.isInstalled()) {
+                Log.w("ExtendedAccess", "Denying spoofed package " + packageName + ": not installed");
+                continue;
+            }
 
             if (new ExtendedPackageInfo(context, packageName).hasGooglePackagePermission(permission)) {
                 return true;
